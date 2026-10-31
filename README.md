@@ -8,28 +8,54 @@ An interactive tile-grid map showing how each US state's population under 18 and
 - **Hover** a tile for exact values at the year under your cursor and the state's crossover year
 - **Click** a tile for a large chart with summary metrics
 - **Timeline slider** (with Play) that scrubs every tile at once; tiles tint when 65+ outnumber under-18
-- **Shared or per-state y-axis**, and light/dark mode
-- No build step: one HTML file using [D3 v7](https://d3js.org/) and [Tailwind CSS](https://tailwindcss.com/) from CDNs
+- **Shared or per-state y-axis**, light/dark mode, and a compact legend with a live **crossed over** count (for example `17/50`)
+- No build step: static HTML with bundled D3, CSS, fonts, and Census data in `vendor/` and `census-data.js`
 
 ## Quick start
 
-### Look at it with the built-in mock data
+### View the bundled Census data (recommended)
 
-Open `index.html` in a browser. You need an internet connection for the CDN scripts and fonts.
+This repo ships **2000–2025** Census Bureau data in `census-data.js`. Open `index.html` in a browser (double-click or drag into a window). The badge should read **Census Bureau data**. No Python or local server required for the bundled copy.
 
-> **The built-in numbers are illustrative mock data, not official statistics.** They are built from rough per-state anchor values and smoothed with the same curve fitting the real pipeline uses. A badge on the page says "Illustrative mock data" whenever they are in use.
+If the badge says **Illustrative mock data**, the page could not load `census-data.js` (wrong working directory) or you are overriding data with `?data=`.
 
-### Use real Census data
+### Local preview with a server
 
 ```bash
-pip install pandas numpy scipy requests
-python fetch_census_data.py --historical-csv decennial_1970_1990.csv
+python3 -m http.server 8000
+```
+
+Open <http://localhost:8000>. The page still prefers `census-data.js`; `states_age_1970_2025.json` is the HTTP fallback.
+
+### Rebuild data from Census sources
+
+```bash
+python3 -m venv .venv --clear
+source .venv/bin/activate
+python -m pip install -r requirements.txt
+python fetch_census_data.py
 python -m http.server 8000
 ```
 
-Then open <http://localhost:8000>. The page loads `states_age_1970_2025.json` automatically and the badge changes to "Census Bureau data". You can also point it at another file with `?data=URL`.
+`fetch_census_data.py` writes **2000–2025** by default and updates both `states_age_1970_2025.json` and `census-data.js`. For **1970–2025**, pass decennial anchors:
 
-A local server is needed because browsers block a page opened from disk from reading a neighbouring JSON file.
+```bash
+python fetch_census_data.py --historical-csv decennial_1970_1990.csv
+```
+
+Optional ACS cross-check (needs a free [Census API key](https://api.census.gov/data/key_signup.html)):
+
+```bash
+python fetch_census_data.py --validate-acs --acs-key YOUR_KEY
+```
+
+### Host on GitHub Pages
+
+After merging to `main`, enable **Settings → Pages → Build and deployment → Source: GitHub Actions** if prompted. The workflow `.github/workflows/pages.yml` deploys on every push to `main`.
+
+Public URL: <https://rrajkowski.github.io/us-age-tile-grid-map/>
+
+> **Illustrative mock data** remains in `index.html` as a fallback if neither bundled nor fetched JSON loads. The bundled repo copy uses real Census data.
 
 ## Data
 
@@ -57,8 +83,12 @@ DC and Puerto Rico are not included (the layout is the 50 states).
 
 | File | Purpose |
 | --- | --- |
-| `index.html` | The visualization, including the embedded mock dataset and the grid layout coordinates |
-| `fetch_census_data.py` | Builds `states_age_1970_2025.json` from Census sources |
+| `index.html` | The visualization, tile layout, mock fallback, and UI |
+| `census-data.js` | Bundled Census rows loaded by the page (GitHub Pages–friendly) |
+| `states_age_1970_2025.json` | Same data as JSON; used when served over HTTP |
+| `fetch_census_data.py` | Rebuilds the JSON and `census-data.js` from Census sources |
+| `requirements.txt` | Pinned Python deps for the fetch script |
+| `.github/workflows/pages.yml` | GitHub Pages deploy on push to `main` |
 | `LICENSE` | MIT license for this project's code |
 
 ## Acknowledgments and notices
@@ -66,8 +96,8 @@ DC and Puerto Rico are not included (the layout is the 50 states).
 - Data: U.S. Census Bureau. Census Bureau data are works of the U.S. government and are not subject to copyright, but please cite the source.
 - *This product uses the Census Bureau Data API but is not endorsed or certified by the Census Bureau.*
 - Tile-grid maps were popularized by NPR and others; this layout is an independent implementation.
-- Libraries loaded at runtime from CDNs, not bundled: D3 (ISC license), Tailwind CSS (MIT). Fonts from Google Fonts: Inter and Source Serif 4 (SIL Open Font License).
-- Python dependencies: pandas, NumPy, SciPy (BSD), requests (Apache-2.0).
+- Bundled assets in `vendor/`: D3 v7 (ISC), compiled Tailwind CSS (MIT), Inter and Source Serif 4 (SIL OFL)
+- Python dependencies (via `requirements.txt`): pandas, NumPy, SciPy (BSD), requests (Apache-2.0)
 - If you build the 1970-1999 anchors from IPUMS NHGIS, follow their [terms of use](https://www.nhgis.org/terms-use): cite NHGIS and do not redistribute their data files.
 
 ## License

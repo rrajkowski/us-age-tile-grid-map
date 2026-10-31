@@ -30,7 +30,8 @@ fine; every year below 2000 that you supply becomes a spline knot.
 
 Usage
 -----
-    pip install pandas numpy scipy requests
+    python3 -m venv .venv --clear && source .venv/bin/activate
+    python -m pip install -r requirements.txt
     python fetch_census_data.py --historical-csv decennial_1970_1990.csv
     python fetch_census_data.py --historical-csv decennial_1970_1990.csv --validate-acs --acs-key YOUR_KEY
     python fetch_census_data.py            # 2000-2025 only (the page then shows 2000-2025)
