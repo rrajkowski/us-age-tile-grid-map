@@ -10,9 +10,10 @@ permissions:
   pages: write
   id-token: write
 
-# First deploy: configure-pages uses enablement: true to turn on Pages with
-# GitHub Actions as the source. Repo setting: Actions → General → Workflow
-# permissions → Read and write permissions.
+# Pages must be enabled once in the repo UI (Settings → Pages → GitHub Actions).
+# Do not use configure-pages enablement: true here — GITHUB_TOKEN cannot create
+# the Pages site ("Resource not accessible by integration"). After the site exists,
+# this workflow uploads the artifact and deploy-pages publishes it.
 
 concurrency:
   group: pages
@@ -36,8 +37,6 @@ jobs:
 
       - name: Configure Pages
         uses: actions/configure-pages@v5
-        with:
-          enablement: true
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3

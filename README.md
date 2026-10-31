@@ -51,7 +51,12 @@ python fetch_census_data.py --validate-acs --acs-key YOUR_KEY
 
 ### Host on GitHub Pages
 
-After merging to `main`, enable **Settings → Pages → Build and deployment → Source: GitHub Actions** if prompted. The workflow `.github/workflows/pages.yml` deploys on every push to `main`.
+One-time setup (repo **Settings**, you need admin access):
+
+1. **Actions → General → Workflow permissions** → choose **Read and write permissions** → **Save**. (If this stays on read-only, deploy steps can fail with permission errors.)
+2. **Pages → Build and deployment → Source** → **GitHub Actions**. Save. This creates the Pages site; the workflow cannot do this step with `GITHUB_TOKEN` alone.
+
+Then push to `main` or re-run **Actions → Deploy to GitHub Pages**. The workflow copies static files to `_site` and publishes them.
 
 Public URL: <https://rrajkowski.github.io/us-age-tile-grid-map/>
 
