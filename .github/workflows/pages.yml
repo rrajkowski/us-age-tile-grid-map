@@ -10,6 +10,10 @@ permissions:
   pages: write
   id-token: write
 
+# First deploy: configure-pages uses enablement: true to turn on Pages with
+# GitHub Actions as the source. Repo setting: Actions → General → Workflow
+# permissions → Read and write permissions.
+
 concurrency:
   group: pages
   cancel-in-progress: true
