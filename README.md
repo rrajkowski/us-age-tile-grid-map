@@ -22,8 +22,10 @@ Open `index.html` in a browser. You need an internet connection for the CDN scri
 ### Use real Census data
 
 ```bash
-pip install pandas numpy scipy requests
-python fetch_census_data.py --historical-csv decennial_1970_1990.csv
+python3 -m venv .venv --clear
+source .venv/bin/activate
+python -m pip install -r requirements.txt
+python fetch_census_data.py
 python -m http.server 8000
 ```
 
