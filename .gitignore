@@ -1,0 +1,14 @@
+.venv/
+.census_cache/
+__pycache__/
+*.pyc
+.DS_Store
+_site/
+
+# Never commit API keys or local config
+.env
+*.key
+
+# Historical inputs you may not have the right to redistribute (e.g. NHGIS extracts)
+decennial_*.csv
+nhgis*/

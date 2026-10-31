@@ -1,0 +1,757 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Children and Seniors, State by State</title>
+
+<!-- Apply the saved / system theme before first paint to avoid a flash. -->
+<script>
+  (function () {
+    try {
+      var saved = localStorage.getItem('theme');
+      var dark = saved ? saved === 'dark' : window.matchMedia('(prefers-color-scheme: dark)').matches;
+      document.documentElement.classList.toggle('dark', dark);
+    } catch (e) {}
+  })();
+</script>
+
+<link rel="stylesheet" href="vendor/app.css">
+
+<style>
+  /* ---- Theme tokens. Charts read these via CSS, so toggling dark mode needs no redraw. ---- */
+  :root {
+    --bg: #faf9f6; --panel: #ffffff; --ink: #14171f; --muted: #5b6475;
+    --rule: #e3e0d8; --grid: #eceae3;
+    --teal: #0b95a3;   /* % under 18 */
+    --navy: #1b2a6b;   /* % 65 and older */
+  }
+  .dark {
+    --bg: #0e1118; --panel: #151a24; --ink: #eef0f5; --muted: #9aa3b5;
+    --rule: #262d3b; --grid: #1e2432;
+    --teal: #3ccfda;
+    --navy: #8aa4ff;   /* lightened so "dark navy" stays legible on a dark background */
+  }
+  html { color-scheme: light; }
+  html.dark { color-scheme: dark; }
+  body { background: var(--bg); color: var(--ink); font-family: Inter, system-ui, sans-serif;
+         font-feature-settings: "tnum" 1, "lnum" 1; -webkit-font-smoothing: antialiased; }
+  .serif { font-family: "Source Serif 4", Georgia, serif; }
+  .muted { color: var(--muted); }
+  .rule { border-color: var(--rule); }
+  .panel { background: var(--panel); border: 1px solid var(--rule); }
+
+  /* ---- Tiles ---- */
+  #grid { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 6px; }
+  .tile { background: var(--panel); border: 1px solid var(--rule); border-radius: 6px; cursor: pointer;
+          transition: opacity .15s ease, box-shadow .15s ease, background-color .2s ease; outline: none; position: relative; }
+  .tile.crossed { background: color-mix(in srgb, var(--navy) 11%, var(--panel)); }
+  #grid.has-hot .tile:not(.is-hot) { opacity: .38; }
+  .tile.is-hot, .tile:focus-visible { box-shadow: 0 0 0 2px var(--ink); z-index: 2; }
+  .tile svg { display: block; width: 100%; height: auto; touch-action: manipulation; }
+  .tile .code { font-size: 9px; font-weight: 600; fill: var(--ink); letter-spacing: .04em; }
+
+  .ln-u { stroke: var(--teal); fill: none; stroke-linecap: round; stroke-linejoin: round; }
+  .ln-o { stroke: var(--navy); fill: none; stroke-linecap: round; stroke-linejoin: round; }
+  .dot-u { fill: var(--teal); } .dot-o { fill: var(--navy); }
+  .gl { stroke: var(--grid); stroke-width: .5; }
+  .head { stroke: var(--ink); stroke-width: .5; stroke-dasharray: 1.5 1.5; opacity: .55; }
+
+  .swatch-u { background: var(--teal); } .swatch-o { background: var(--navy); }
+
+  /* ---- Controls ---- */
+  input[type=range] { accent-color: var(--navy); width: 100%; height: 28px; cursor: pointer; }
+  .btn { border: 1px solid var(--rule); background: var(--panel); border-radius: 999px; padding: 6px 14px;
+         font-size: 13px; font-weight: 500; cursor: pointer; transition: background-color .15s; }
+  .btn:hover { background: color-mix(in srgb, var(--ink) 6%, var(--panel)); }
+  .btn:focus-visible, .seg button:focus-visible, .tile:focus-visible { outline: 2px solid var(--navy); outline-offset: 2px; }
+  .seg { display: inline-flex; border: 1px solid var(--rule); border-radius: 999px; overflow: hidden; background: var(--panel); }
+  .seg button { padding: 6px 12px; font-size: 13px; font-weight: 500; color: var(--muted); }
+  .seg button[aria-pressed="true"] { background: var(--ink); color: var(--bg); }
+
+  /* ---- Tooltip ---- */
+  #tooltip { position: fixed; z-index: 60; pointer-events: none; min-width: 220px; max-width: 280px; padding: 12px 14px;
+             border-radius: 8px; background: var(--panel); border: 1px solid var(--rule);
+             box-shadow: 0 10px 30px rgba(0,0,0,.18); font-size: 13px; opacity: 0; transform: translateY(2px);
+             transition: opacity .1s ease; }
+  #tooltip.on { opacity: 1; }
+
+  /* ---- Modal chart ---- */
+  #m-chart text { fill: var(--muted); font-size: 12px; font-family: Inter, sans-serif; }
+  #m-chart .lbl-u { fill: var(--teal); font-weight: 600; } #m-chart .lbl-o { fill: var(--navy); font-weight: 600; }
+  #m-chart .axis-line { stroke: var(--rule); } #m-chart .m-gl { stroke: var(--grid); }
+  #m-chart .cross-line { stroke: var(--ink); stroke-dasharray: 3 3; opacity: .5; }
+  #m-chart .cursor { stroke: var(--ink); opacity: .5; }
+  #m-chart .census-dot { fill: var(--panel); stroke-width: 2; }
+
+  .tile-meta { display: none; }
+
+  /* Legend: one compact inline row. The crossover stat breaks to its own line on a phone. */
+  #legend {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px;
+    margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--rule);
+    font-size: 12px; line-height: 1.3; font-weight: 400;
+  }
+  #legend .key { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+  #cross-stat {
+    display: inline-flex; align-items: center; gap: 6px;
+    margin-left: auto; font-weight: 400; white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+  }
+  #cross-pie { display: block; flex: none; }
+  #cross-stat #data-badge { margin-left: 4px; }
+
+  @media (max-width: 767px) {
+    #grid-scroll { overflow: visible; margin-left: 0; margin-right: 0; padding-left: 0; padding-right: 0; }
+    #grid {
+      display: flex; flex-direction: column; min-width: 0; gap: 8px;
+    }
+    #grid .tile {
+      order: var(--alpha);
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 148px;
+      grid-template-rows: auto auto;
+      align-items: center;
+      column-gap: 12px;
+      row-gap: 2px;
+      width: 100%;
+      padding: 12px 14px;
+    }
+    .tile-meta { display: contents; }
+    .tile-name {
+      grid-column: 1; grid-row: 1;
+      font-family: "Source Serif 4", Georgia, serif;
+      font-size: 1.25rem; font-weight: 600; line-height: 1.15; letter-spacing: -0.01em;
+    }
+    .tile-figs {
+      grid-column: 1; grid-row: 2;
+      display: flex; flex-wrap: wrap; gap: 4px 14px;
+      font-size: 13px; font-weight: 600; font-variant-numeric: tabular-nums;
+    }
+    .fig-u { color: var(--teal); } .fig-o { color: var(--navy); }
+    .fig-u span, .fig-o span {
+      display: block; font-size: 10px; font-weight: 600; letter-spacing: .06em;
+      text-transform: uppercase; color: var(--muted);
+    }
+    #grid .tile svg { grid-column: 2; grid-row: 1 / span 2; width: 148px; height: 64px; }
+    #grid .tile .code { display: none; }
+    #cross-stat { flex-basis: 100%; margin-left: 0; }
+    #cross-stat #data-badge { margin-left: auto; }
+    #year-row { flex-wrap: wrap; }
+    #year-big { font-size: 3.25rem; }
+    #modal { padding: 0; align-items: stretch; }
+    #m-panel {
+      width: 100%; height: 100%; max-width: none; max-height: none;
+      border-radius: 0; border: 0; box-shadow: none;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) { .tile, #tooltip { transition: none; } }
+</style>
+</head>
+
+<body class="min-h-screen">
+<header class="max-w-6xl mx-auto px-4 pt-8 sm:pt-12">
+  <div class="flex items-start justify-between gap-4">
+    <p class="text-xs font-semibold tracking-[.14em] uppercase muted">Demographics &middot; United States</p>
+    <button id="theme-btn" class="btn" type="button" aria-label="Toggle dark mode">Dark mode</button>
+  </div>
+  <h1 class="serif text-4xl sm:text-5xl font-bold leading-[1.05] tracking-tight mt-3">Children and seniors, state by state</h1>
+  <p id="dek" class="serif text-lg sm:text-xl muted mt-3 max-w-3xl leading-snug"></p>
+</header>
+
+<main class="max-w-6xl mx-auto px-4 pb-16">
+  <!-- Controls -->
+  <section class="mt-8 panel rounded-xl p-4 sm:p-5" aria-label="Controls">
+    <div class="flex flex-wrap items-end gap-x-8 gap-y-4">
+      <div id="year-row" class="flex items-baseline gap-4">
+        <div id="year-big" class="serif text-6xl font-bold leading-none tabular-nums" aria-live="polite">2025</div>
+        <p id="stat" class="text-sm max-w-xs leading-snug"></p>
+      </div>
+      <div class="flex-1 min-w-[220px]">
+        <label for="year-slider" class="text-xs font-semibold tracking-wider uppercase muted">Year</label>
+        <input id="year-slider" type="range" min="1970" max="2025" step="1" value="2025">
+        <div class="flex justify-between text-xs muted tabular-nums -mt-1"><span id="y-min">1970</span><span id="y-max">2025</span></div>
+      </div>
+      <div class="flex flex-wrap items-center gap-3">
+        <button id="play-btn" class="btn" type="button">Play</button>
+        <div class="seg" role="group" aria-label="Vertical scale">
+          <button type="button" id="scale-shared" aria-pressed="true">Shared scale</button>
+          <button type="button" id="scale-fit" aria-pressed="false">Fit each state</button>
+        </div>
+      </div>
+    </div>
+    <div id="legend">
+      <span class="key"><span class="swatch-u inline-block w-4 h-[3px] rounded"></span>% under 18</span>
+      <span class="key"><span class="swatch-o inline-block w-4 h-[3px] rounded"></span>% 65 and older</span>
+      <span class="key"><span class="inline-block w-3 h-3 rounded-sm border rule" style="background:color-mix(in srgb, var(--navy) 11%, var(--panel))"></span>65+ outnumber under&#8209;18</span>
+      <p id="cross-stat" aria-live="polite">
+        <svg id="cross-pie" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
+          <circle cx="8" cy="8" r="6.4" fill="var(--grid)"></circle>
+          <path id="cross-pie-slice" fill="var(--navy)"></path>
+        </svg>
+        <span id="cross-count"></span>
+        <span id="data-badge" class="text-xs font-medium px-2.5 py-1 rounded-full border rule"></span>
+      </p>
+    </div>
+  </section>
+
+  <!-- Tile grid map -->
+  <section class="mt-6">
+    <div id="grid-scroll" class="overflow-x-auto -mx-4 px-4 pb-2">
+      <div id="grid" class="min-w-[720px]" role="group" aria-label="Small multiples: one chart per state"></div>
+    </div>
+    <p id="layout-note" class="text-xs muted mt-2">Hover a tile for exact values and the crossover year. Click or press Enter for the full chart. Tiles are placed in an approximate geographic layout, not to scale.</p>
+  </section>
+
+  <footer class="mt-12 pt-6 border-t rule grid gap-6 sm:grid-cols-2 text-sm muted leading-relaxed">
+    <div>
+      <h2 class="text-xs font-semibold tracking-[.14em] uppercase mb-2" style="color:var(--ink)">About the data</h2>
+      <p id="source-note"></p>
+    </div>
+    <div>
+      <h2 class="text-xs font-semibold tracking-[.14em] uppercase mb-2" style="color:var(--ink)">Method notes</h2>
+      <p><strong style="color:var(--ink)">Crossover year</strong> is the first year from which 65+ exceed under&#8209;18 in every later year, so a single noisy year doesn&rsquo;t count. <strong style="color:var(--ink)">Curves</strong> are drawn with monotone cubic interpolation, which never overshoots between data points. Both lines are shares of each state&rsquo;s total population.</p>
+    </div>
+  </footer>
+</main>
+
+<!-- Tooltip -->
+<div id="tooltip" role="tooltip" aria-hidden="true">
+  <div class="flex items-baseline justify-between gap-3">
+    <div id="tt-name" class="serif text-base font-semibold"></div>
+    <div id="tt-year" class="text-xs muted tabular-nums"></div>
+  </div>
+  <div class="mt-2 space-y-1">
+    <div class="flex items-center justify-between gap-3"><span class="inline-flex items-center gap-2"><span class="swatch-u inline-block w-3 h-[3px] rounded"></span>Under 18</span><span id="tt-u" class="font-semibold tabular-nums"></span></div>
+    <div class="flex items-center justify-between gap-3"><span class="inline-flex items-center gap-2"><span class="swatch-o inline-block w-3 h-[3px] rounded"></span>65 and older</span><span id="tt-o" class="font-semibold tabular-nums"></span></div>
+  </div>
+  <div class="mt-2 pt-2 border-t rule space-y-1 text-xs">
+    <div class="flex justify-between gap-3"><span class="muted">Seniors per 100 children</span><span id="tt-ratio" class="tabular-nums font-medium"></span></div>
+    <div class="flex justify-between gap-3"><span class="muted">Crossover year</span><span id="tt-cross" class="tabular-nums font-medium"></span></div>
+  </div>
+</div>
+
+<!-- Modal -->
+<div id="modal" class="fixed inset-0 z-50 hidden items-center justify-center p-3 sm:p-6" role="dialog" aria-modal="true" aria-labelledby="m-title">
+  <div id="m-backdrop" class="absolute inset-0 bg-black/55 backdrop-blur-sm"></div>
+  <div id="m-panel" class="panel relative w-full max-w-4xl max-h-full overflow-auto rounded-2xl p-5 sm:p-7 shadow-2xl">
+    <div class="flex items-start justify-between gap-4">
+      <div>
+        <p id="m-kicker" class="text-xs font-semibold tracking-[.14em] uppercase muted"></p>
+        <h2 id="m-title" class="serif text-3xl sm:text-4xl font-bold leading-tight mt-1"></h2>
+      </div>
+      <button id="m-close" class="btn" type="button" aria-label="Close">Close &#10005;</button>
+    </div>
+
+    <div class="mt-4 flex flex-wrap items-center justify-between gap-2 text-sm">
+      <div id="m-readout" class="tabular-nums" aria-live="polite"></div>
+      <div class="flex items-center gap-4 text-xs muted">
+        <span class="inline-flex items-center gap-1.5"><span class="swatch-u inline-block w-4 h-[3px] rounded"></span>Under 18</span>
+        <span class="inline-flex items-center gap-1.5"><span class="swatch-o inline-block w-4 h-[3px] rounded"></span>65 and older</span>
+        <span class="inline-flex items-center gap-1.5"><span class="inline-block w-2.5 h-2.5 rounded-full border-2" style="border-color:var(--ink)"></span>Census year</span>
+      </div>
+    </div>
+
+    <svg id="m-chart" viewBox="0 0 760 400" class="w-full h-auto mt-2" role="img"></svg>
+
+    <div id="m-metrics" class="grid grid-cols-2 lg:grid-cols-4 gap-3 mt-4"></div>
+  </div>
+</div>
+
+<noscript><p class="max-w-6xl mx-auto px-4 py-8">This chart needs JavaScript.</p></noscript>
+
+<script src="vendor/d3.min.js"></script>
+<script src="census-data.js"></script>
+<script>
+(() => {
+'use strict';
+
+/* =====================================================================================
+ * 1. TILE GRID LAYOUT  (row, col) on a 12-column x 8-row grid
+ * -------------------------------------------------------------------------------------
+ * A "tile grid map": each state is one equal-size square placed near its real position,
+ * so small multiples stay comparable instead of Texas dwarfing Rhode Island.
+ * row 0 is the top, col 0 is the left. AK is top-left, ME top-right, HI bottom-left and
+ * FL bottom-right, as requested. This is the widely used NPR-style layout; all 50 cells
+ * are unique (checked at startup).
+ *
+ *      c0  c1  c2  c3  c4  c5  c6  c7  c8  c9  c10 c11
+ *  r0  AK                                          ME
+ *  r1                                          VT  NH
+ *  r2      WA  ID  MT  ND  MN  IL  WI  MI  NY  RI  MA
+ *  r3      OR  NV  WY  SD  IA  IN  OH  PA  NJ  CT
+ *  r4      CA  UT  CO  NE  MO  KY  WV  VA  MD  DE
+ *  r5          AZ  NM  KS  AR  TN  NC  SC
+ *  r6                  OK  LA  MS  AL  GA
+ *  r7  HI              TX                  FL
+ * ===================================================================================== */
+const TILE_GRID = {
+  AK:{row:0,col:0},  ME:{row:0,col:11},
+  VT:{row:1,col:10}, NH:{row:1,col:11},
+  WA:{row:2,col:1},  ID:{row:2,col:2},  MT:{row:2,col:3},  ND:{row:2,col:4},  MN:{row:2,col:5},  IL:{row:2,col:6},
+  WI:{row:2,col:7},  MI:{row:2,col:8},  NY:{row:2,col:9},  RI:{row:2,col:10}, MA:{row:2,col:11},
+  OR:{row:3,col:1},  NV:{row:3,col:2},  WY:{row:3,col:3},  SD:{row:3,col:4},  IA:{row:3,col:5},  IN:{row:3,col:6},
+  OH:{row:3,col:7},  PA:{row:3,col:8},  NJ:{row:3,col:9},  CT:{row:3,col:10},
+  CA:{row:4,col:1},  UT:{row:4,col:2},  CO:{row:4,col:3},  NE:{row:4,col:4},  MO:{row:4,col:5},  KY:{row:4,col:6},
+  WV:{row:4,col:7},  VA:{row:4,col:8},  MD:{row:4,col:9},  DE:{row:4,col:10},
+  AZ:{row:5,col:2},  NM:{row:5,col:3},  KS:{row:5,col:4},  AR:{row:5,col:5},  TN:{row:5,col:6},  NC:{row:5,col:7},  SC:{row:5,col:8},
+  OK:{row:6,col:4},  LA:{row:6,col:5},  MS:{row:6,col:6},  AL:{row:6,col:7},  GA:{row:6,col:8},
+  HI:{row:7,col:0},  TX:{row:7,col:4},  FL:{row:7,col:9}
+};
+
+/* =====================================================================================
+ * 2. EMBEDDED MOCK DATASET  (runs out of the box, no API key)
+ * -------------------------------------------------------------------------------------
+ * ILLUSTRATIVE ONLY. Each state carries four rough anchor values (1970 and 2025 shares)
+ * pulled from memory of published Census figures. They are NOT official numbers.
+ * fetch_census_data.py writes states_age_1970_2025.json and census-data.js. The page
+ * reads the bundled script first (works on GitHub Pages, Cloudflare Pages, and a
+ * double-clicked file). The JSON is the fallback when the page is served over http.
+ *
+ * Row format: [name, code, under18_1970, 65plus_1970, under18_2025, 65plus_2025]
+ * ===================================================================================== */
+const MOCK_ANCHORS = [
+  ['Alabama','AL',35.6,9.9,22.0,18.3],['Alaska','AK',39.5,2.3,24.0,13.0],['Arizona','AZ',36.0,8.4,22.2,18.9],
+  ['Arkansas','AR',34.9,11.9,23.0,18.1],['California','CA',32.0,9.1,21.4,16.4],['Colorado','CO',35.0,8.5,21.2,15.9],
+  ['Connecticut','CT',32.8,9.6,19.9,19.2],['Delaware','DE',34.2,8.1,20.5,20.2],['Florida','FL',30.3,14.6,19.5,22.6],
+  ['Georgia','GA',36.0,8.1,23.0,15.8],['Hawaii','HI',36.0,5.5,20.8,19.8],['Idaho','ID',36.5,9.9,24.0,17.4],
+  ['Illinois','IL',34.0,10.1,21.4,17.2],['Indiana','IN',35.0,9.5,23.4,17.4],['Iowa','IA',34.2,12.2,22.7,18.5],
+  ['Kansas','KS',32.7,12.6,23.5,17.3],['Kentucky','KY',35.0,9.8,22.4,17.9],['Louisiana','LA',38.0,8.6,23.4,17.2],
+  ['Maine','ME',34.2,11.0,17.6,23.2],['Maryland','MD',35.0,7.5,21.5,17.4],['Massachusetts','MA',32.2,10.8,19.6,18.2],
+  ['Michigan','MI',36.0,8.4,21.2,18.9],['Minnesota','MN',35.3,10.6,22.2,17.4],['Mississippi','MS',38.5,9.5,23.2,17.3],
+  ['Missouri','MO',33.5,11.9,22.4,18.3],['Montana','MT',35.0,9.8,20.3,21.2],['Nebraska','NE',34.5,12.2,24.0,16.9],
+  ['Nevada','NV',34.0,6.6,21.8,17.2],['New Hampshire','NH',33.2,10.9,18.9,20.4],['New Jersey','NJ',33.8,9.1,21.3,17.9],
+  ['New Mexico','NM',40.0,6.8,21.8,19.0],['New York','NY',32.0,10.2,20.5,18.0],['North Carolina','NC',36.0,8.1,21.5,18.2],
+  ['North Dakota','ND',37.0,10.1,23.4,16.6],['Ohio','OH',35.0,9.4,21.9,18.5],['Oklahoma','OK',33.9,11.0,23.9,16.8],
+  ['Oregon','OR',33.0,10.5,19.0,21.0],['Pennsylvania','PA',32.8,11.2,20.2,20.0],['Rhode Island','RI',32.2,11.1,19.3,18.9],
+  ['South Carolina','SC',38.0,7.6,21.4,19.6],['South Dakota','SD',36.5,11.3,24.4,18.0],['Tennessee','TN',34.9,9.4,21.9,17.7],
+  ['Texas','TX',36.0,8.6,24.8,14.2],['Utah','UT',41.5,7.4,28.2,12.5],['Vermont','VT',34.6,10.9,17.4,21.6],
+  ['Virginia','VA',34.0,8.3,21.2,17.4],['Washington','WA',33.5,9.8,20.9,16.9],['West Virginia','WV',34.0,10.4,19.4,22.0],
+  ['Wisconsin','WI',35.0,10.6,21.4,18.7],['Wyoming','WY',35.8,8.9,22.6,18.4]
+];
+
+/* National shape used to give the mock states a realistic common trajectory:
+ * the baby-boom-echo drop in child share through 1990, then the post-2010 surge in seniors. */
+const NAT_YEARS = [1970,1980,1990,2000,2010,2015,2020,2025];
+const NAT_U18   = [34.0,28.0,25.7,25.7,24.0,23.1,22.2,21.5];
+const NAT_O65   = [ 9.8,11.3,12.5,12.4,13.0,14.9,16.8,18.0];
+
+/* =====================================================================================
+ * 3. SMOOTH CURVE FITTING ACROSS HISTORICAL CENSUS YEARS
+ * -------------------------------------------------------------------------------------
+ * Census-year values (1970, 1980, 1990, 2000...) are sparse, so annual values between
+ * them are interpolated with a monotone cubic Hermite spline (Fritsch-Carlson, a.k.a.
+ * PCHIP). Compared with a natural cubic spline it never overshoots: if two neighbouring
+ * knots are 25.7 and 24.0, nothing in between dips to 23.2. Compared with linear
+ * interpolation it has no visible kinks at census years.
+ *
+ * The same idea is used when drawing: d3.curveMonotoneX renders every line, so the
+ * on-screen curve matches the interpolant used to fill in missing years.
+ * fetch_census_data.py uses scipy's PchipInterpolator for the identical fit.
+ * ===================================================================================== */
+function pchip(xs, ys) {
+  const n = xs.length, h = [], delta = [], d = new Array(n);
+  for (let i = 0; i < n - 1; i++) { h[i] = xs[i+1] - xs[i]; delta[i] = (ys[i+1] - ys[i]) / h[i]; }
+  if (n === 2) { d[0] = d[1] = delta[0]; }
+  else {
+    for (let i = 1; i < n - 1; i++) {
+      if (delta[i-1] * delta[i] <= 0) d[i] = 0;               // local extremum: flat tangent, no overshoot
+      else {                                                    // weighted harmonic mean of adjacent slopes
+        const w1 = 2*h[i] + h[i-1], w2 = h[i] + 2*h[i-1];
+        d[i] = (w1 + w2) / (w1/delta[i-1] + w2/delta[i]);
+      }
+    }
+    d[0] = endSlope(h[0], h[1], delta[0], delta[1]);
+    d[n-1] = endSlope(h[n-2], h[n-3], delta[n-2], delta[n-3]);
+  }
+  return x => {
+    let i = n - 2;
+    for (let k = 0; k < n - 1; k++) if (x <= xs[k+1]) { i = k; break; }
+    const t = (x - xs[i]) / h[i], t2 = t*t, t3 = t2*t;
+    return (2*t3 - 3*t2 + 1)*ys[i] + (t3 - 2*t2 + t)*h[i]*d[i] + (-2*t3 + 3*t2)*ys[i+1] + (t3 - t2)*h[i]*d[i+1];
+  };
+}
+function endSlope(h0, h1, del0, del1) {                         // shape-preserving three-point end condition
+  let s = ((2*h0 + h1)*del0 - h0*del1) / (h0 + h1);
+  if (Math.sign(s) !== Math.sign(del0)) s = 0;
+  else if (Math.sign(del0) !== Math.sign(del1) && Math.abs(s) > 3*Math.abs(del0)) s = 3*del0;
+  return s;
+}
+
+/* Small deterministic PRNG so the mock data is identical on every load. */
+function mulberry32(a) { return () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a);
+  t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+const hashStr = s => { let h = 2166136261; for (const c of s) { h ^= c.charCodeAt(0); h = Math.imul(h, 16777619); } return h >>> 0; };
+
+function buildMockDataset() {
+  const natU = pchip(NAT_YEARS, NAT_U18), natO = pchip(NAT_YEARS, NAT_O65);
+  const rows = [];
+  for (const [name, code, u70, o70, u25, o25] of MOCK_ANCHORS) {
+    const rnd = mulberry32(hashStr(code));
+    // State = national curve + an offset that drifts linearly from its 1970 gap to its 2025 gap.
+    const offU70 = u70 - NAT_U18[0], offU25 = u25 - NAT_U18[7];
+    const offO70 = o70 - NAT_O65[0], offO25 = o25 - NAT_O65[7];
+    // Interior knots get a little state-specific noise (zero at both ends so the table values hold exactly).
+    const knotYears = NAT_YEARS, ku = [], ko = [];
+    knotYears.forEach((y, i) => {
+      const t = (y - 1970) / 55, edge = (i === 0 || i === knotYears.length - 1) ? 0 : 1;
+      ku.push(natU(y) + offU70 + (offU25 - offU70) * t + edge * (rnd() - .5) * .7);
+      ko.push(natO(y) + offO70 + (offO25 - offO70) * t + edge * (rnd() - .5) * .5);
+    });
+    const fu = pchip(knotYears, ku), fo = pchip(knotYears, ko);
+    for (let y = 1970; y <= 2025; y++) {
+      rows.push({ state: name, state_code: code, year: y,
+        pct_under_18: +Math.max(fu(y), .5).toFixed(2), pct_65_plus: +Math.max(fo(y), .5).toFixed(2) });
+    }
+  }
+  return rows;
+}
+
+function rowsLookValid(rows) {
+  return Array.isArray(rows) && rows.length > 0 && rows.every(r => r.state_code in TILE_GRID || r.state_code === 'DC');
+}
+
+/* Bundled census-data.js first, then states_age_1970_2025.json (or ?data=URL), else mock. */
+async function loadDataset() {
+  const override = new URLSearchParams(location.search).get('data');
+  const urls = override ? [override] : ['states_age_1970_2025.json'];
+  if (!override && rowsLookValid(window.CENSUS_ROWS)) {
+    return { rows: window.CENSUS_ROWS, source: 'census', url: 'states_age_1970_2025.json' };
+  }
+  for (const url of urls) {
+    try {
+      const res = await fetch(url, { cache: 'no-store' });
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      const rows = await res.json();
+      if (!rowsLookValid(rows)) throw new Error('unexpected shape');
+      return { rows, source: 'census', url };
+    } catch (e) { /* try the next source */ }
+  }
+  return { rows: buildMockDataset(), source: 'mock' };
+}
+
+/* =====================================================================================
+ * 4. DATA INDEXING
+ * ===================================================================================== */
+const fmtPct = v => v.toFixed(1) + '%';
+
+function indexDataset(rows) {
+  const states = [];
+  for (const [code, arr] of d3.group(rows.filter(r => r.state_code in TILE_GRID), d => d.state_code)) {
+    arr.sort((a, b) => a.year - b.year);
+    const series = arr.map(r => ({ year: +r.year, u: +r.pct_under_18, o: +r.pct_65_plus }));
+    const byYear = new Map(series.map(p => [p.year, p]));
+    // Crossover = first year of the final unbroken streak in which 65+ > under 18.
+    let cross = null;
+    for (let i = series.length - 1; i >= 0 && series[i].o > series[i].u; i--) cross = series[i].year;
+    states.push({ code, name: arr[0].state, ...TILE_GRID[code], series, byYear, cross,
+      lo: d3.min(series, p => Math.min(p.u, p.o)), hi: d3.max(series, p => Math.max(p.u, p.o)) });
+  }
+  states.sort((a, b) => a.row - b.row || a.col - b.col);
+  // Rank by 65+ share in the last year (1 = oldest).
+  const last = d3.max(states, s => s.series.at(-1).year);
+  [...states].sort((a, b) => (b.byYear.get(last)?.o ?? 0) - (a.byYear.get(last)?.o ?? 0)).forEach((s, i) => s.rankOld = i + 1);
+  return states;
+}
+const valueAt = (st, year) => st.byYear.get(year) ?? st.series.reduce((best, p) => Math.abs(p.year - year) < Math.abs(best.year - year) ? p : best);
+
+/* =====================================================================================
+ * 5. APP
+ * ===================================================================================== */
+async function main() {
+  const codes = Object.values(TILE_GRID).map(p => p.row + ',' + p.col);
+  console.assert(new Set(codes).size === codes.length && codes.length === 50, 'tile grid must have 50 unique cells');
+
+  const { rows, source, url } = await loadDataset();
+  const states = indexDataset(rows);
+  const Y0 = d3.min(states, s => s.series[0].year), Y1 = d3.max(states, s => s.series.at(-1).year);
+  let year = Y1, yMode = 'shared', hotCode = null, playTimer = null, openState = null;
+
+  const $ = id => document.getElementById(id);
+  $('dek').textContent = `Share of each state\u2019s population under 18 (teal) and 65 and older (navy), ${Y0}\u2013${Y1}.`;
+  const slider = $('year-slider'); slider.min = Y0; slider.max = Y1; slider.value = year;
+  $('y-min').textContent = Y0; $('y-max').textContent = Y1;
+  const badge = $('data-badge');
+  if (source === 'mock') {
+    badge.textContent = 'Illustrative mock data'; badge.style.color = '#b45309'; badge.style.borderColor = '#b45309';
+    $('source-note').textContent = 'The figures on this page are an illustrative mock dataset built from rough anchor values, not official statistics. Run fetch_census_data.py to rebuild states_age_1970_2025.json and census-data.js from Census Bureau sources. The page loads census-data.js automatically.';
+  } else {
+    badge.textContent = 'Census Bureau data'; badge.style.color = 'var(--teal)'; badge.style.borderColor = 'var(--teal)';
+    $('source-note').textContent = `Loaded from ${url}. Sources: U.S. Census Bureau decennial censuses (1970\u20131990s), Population Estimates Program (2000\u20132025), and ACS 1-year Table S0101 for cross-checks.`;
+  }
+
+  /* ---------- Shared geometry for tile charts (SVG user units) ---------- */
+  const T = { w: 100, h: 70, l: 4, r: 4, t: 17, b: 5 };
+  const xT = d3.scaleLinear().domain([Y0, Y1]).range([T.l, T.w - T.r]);
+  const sharedTop = Math.ceil(d3.max(states, s => s.hi) / 5) * 5;
+  const ySharedT = d3.scaleLinear().domain([0, sharedTop]).range([T.h - T.b, T.t]);
+  const yFor = st => yMode === 'shared' ? ySharedT : d3.scaleLinear().domain([st.lo, st.hi]).nice().range([T.h - T.b - 2, T.t + 1]);
+  const lineGen = (xs, ys, key) => d3.line().defined(p => Number.isFinite(p[key])).x(p => xs(p.year)).y(p => ys(p[key])).curve(d3.curveMonotoneX);
+
+  /* ---------- Build tiles ---------- */
+  const grid = d3.select('#grid');
+  const tiles = grid.selectAll('div.tile').data(states, s => s.code).join('div')
+    .attr('class', 'tile').attr('tabindex', 0).attr('role', 'button')
+    .style('grid-column', s => s.col + 1).style('grid-row', s => s.row + 1)
+    .attr('aria-label', s => `${s.name}. Open detailed chart.`);
+
+  tiles.each(function (st) {
+    const meta = d3.select(this).append('div').attr('class', 'tile-meta');
+    meta.append('div').attr('class', 'tile-name').text(st.name);
+    const figs = meta.append('div').attr('class', 'tile-figs');
+    st.figU = figs.append('div').attr('class', 'fig-u');
+    st.figO = figs.append('div').attr('class', 'fig-o');
+    const svg = d3.select(this).append('svg').attr('viewBox', `0 0 ${T.w} ${T.h}`).attr('aria-hidden', 'true');
+    st.g = { svg, gl: svg.append('g'), u: svg.append('path').attr('class', 'ln-u').attr('stroke-width', 1.7),
+             o: svg.append('path').attr('class', 'ln-o').attr('stroke-width', 1.7),
+             head: svg.append('line').attr('class', 'head'),
+             du: svg.append('circle').attr('r', 1.9).attr('class', 'dot-u'),
+             dO: svg.append('circle').attr('r', 1.9).attr('class', 'dot-o') };
+    svg.append('text').attr('class', 'code').attr('x', T.l).attr('y', 11).text(st.code);
+    st.el = this;
+  });
+  const alpha = [...states].sort((a, b) => a.name.localeCompare(b.name));
+  alpha.forEach((st, i) => {
+    st.el.style.setProperty('--alpha', i);
+    grid.node().appendChild(st.el);
+  });
+
+  const mobileMq = window.matchMedia('(max-width: 767px)');
+  function syncLayoutNote() {
+    const mobile = mobileMq.matches;
+    $('layout-note').textContent = mobile
+      ? 'States are listed A to Z. Tap a state for the full chart.'
+      : 'Hover a tile for exact values and the crossover year. Click or press Enter for the full chart. Tiles are placed in an approximate geographic layout, not to scale.';
+    $('grid').setAttribute('aria-label', mobile ? 'States in alphabetical order' : 'Small multiples: one chart per state');
+  }
+  syncLayoutNote();
+  mobileMq.addEventListener('change', syncLayoutNote);
+
+  function drawTileLines() {
+    for (const st of states) {
+      const ys = yFor(st); st.ys = ys;
+      st.g.u.attr('d', lineGen(xT, ys, 'u')(st.series));
+      st.g.o.attr('d', lineGen(xT, ys, 'o')(st.series));
+      const ticks = yMode === 'shared' ? [10, 20, 30, 40].filter(v => v < sharedTop) : ys.ticks(2);
+      st.g.gl.selectAll('line').data(ticks).join('line').attr('class', 'gl')
+        .attr('x1', T.l).attr('x2', T.w - T.r).attr('y1', ys).attr('y2', ys);
+      placeMarker(st, st.hoverYear ?? year);
+    }
+  }
+  function placeMarker(st, yr) {
+    const p = valueAt(st, yr), x = xT(p.year);
+    st.g.head.attr('x1', x).attr('x2', x).attr('y1', T.t - 2).attr('y2', T.h - T.b);
+    st.g.du.attr('cx', x).attr('cy', st.ys(p.u));
+    st.g.dO.attr('cx', x).attr('cy', st.ys(p.o));
+  }
+  function drawCrossPie(n, total) {
+    const r = 6.4;
+    const slice = $('cross-pie-slice');
+    if (!total || n <= 0) { slice.setAttribute('d', ''); return; }
+    if (n >= total) {
+      slice.setAttribute('d', `M8 ${8 - r} A${r} ${r} 0 1 1 8 ${8 + r} A${r} ${r} 0 1 1 8 ${8 - r} Z`);
+      return;
+    }
+    const a = (n / total) * Math.PI * 2 - Math.PI / 2;
+    const x = 8 + r * Math.cos(a);
+    const y = 8 + r * Math.sin(a);
+    const large = n / total > 0.5 ? 1 : 0;
+    slice.setAttribute('d', `M8 8 L8 ${8 - r} A${r} ${r} 0 ${large} 1 ${x} ${y} Z`);
+  }
+  function refreshYear() {
+    for (const st of states) {
+      if (st.hoverYear == null) placeMarker(st, year);
+      const p = valueAt(st, year);
+      st.figU.html(`<span>Under 18</span>${fmtPct(p.u)}`);
+      st.figO.html(`<span>65 and older</span>${fmtPct(p.o)}`);
+    }
+    tiles.classed('crossed', st => { const p = valueAt(st, year); return p.o > p.u; });
+    const n = states.filter(st => { const p = valueAt(st, year); return p.o > p.u; }).length;
+    $('cross-count').textContent = `${n}/${states.length} crossed over`;
+    drawCrossPie(n, states.length);
+    $('year-big').textContent = year;
+    $('stat').innerHTML = n === 0
+      ? `In <strong>${year}</strong>, no state has more residents 65+ than under 18.`
+      : `In <strong>${year}</strong>, <strong>${n}</strong> of ${states.length} states have more residents 65+ than under 18.`;
+    slider.value = year;
+    if (openState) renderModalReadout(modalHoverYear ?? year);
+  }
+  function setYear(y) { year = Math.max(Y0, Math.min(Y1, Math.round(y))); refreshYear(); }
+
+  /* ---------- Tooltip + hover ---------- */
+  const tip = $('tooltip');
+  function fillTip(st, yr) {
+    const p = valueAt(st, yr);
+    $('tt-name').textContent = st.name; $('tt-year').textContent = p.year;
+    $('tt-u').textContent = fmtPct(p.u); $('tt-o').textContent = fmtPct(p.o);
+    $('tt-ratio').textContent = Math.round(p.o / p.u * 100);
+    const last = st.series.at(-1);
+    $('tt-cross').textContent = st.cross ? st.cross : `Not yet (gap ${(last.u - last.o).toFixed(1)} pts)`;
+  }
+  function moveTip(ev) {
+    const pad = 16, r = tip.getBoundingClientRect();
+    let x = ev.clientX + pad, y = ev.clientY + pad;
+    if (x + r.width > innerWidth - 8) x = ev.clientX - r.width - pad;
+    if (y + r.height > innerHeight - 8) y = ev.clientY - r.height - pad;
+    tip.style.left = Math.max(8, x) + 'px'; tip.style.top = Math.max(8, y) + 'px';
+  }
+  function hideHover(st) {
+    if (!st) return;
+    st.hoverYear = null; st.el.classList.remove('is-hot'); placeMarker(st, year);
+    grid.classed('has-hot', false); tip.classList.remove('on'); tip.setAttribute('aria-hidden', 'true'); hotCode = null;
+  }
+  tiles.on('pointermove', function (ev, st) {
+    if (ev.pointerType === 'touch') return;
+    const [px] = d3.pointer(ev, st.g.svg.node());
+    const yr = Math.max(Y0, Math.min(Y1, Math.round(xT.invert(px))));
+    st.hoverYear = yr; hotCode = st.code;
+    this.classList.add('is-hot'); grid.classed('has-hot', true);
+    placeMarker(st, yr); fillTip(st, yr); moveTip(ev);
+    tip.classList.add('on'); tip.setAttribute('aria-hidden', 'false');
+  }).on('pointerleave', (ev, st) => hideHover(st))
+    .on('click', (ev, st) => openModal(st, ev.currentTarget))
+    .on('keydown', (ev, st) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); openModal(st, ev.currentTarget); } });
+
+  /* ---------- Controls ---------- */
+  slider.addEventListener('input', () => setYear(+slider.value));
+  const playBtn = $('play-btn');
+  function stopPlay() { clearInterval(playTimer); playTimer = null; playBtn.textContent = 'Play'; }
+  playBtn.addEventListener('click', () => {
+    if (playTimer) return stopPlay();
+    if (year >= Y1) setYear(Y0);
+    playBtn.textContent = 'Pause';
+    playTimer = setInterval(() => { if (year >= Y1) return stopPlay(); setYear(year + 1); }, 150);
+  });
+  function setScale(mode) {
+    yMode = mode;
+    $('scale-shared').setAttribute('aria-pressed', mode === 'shared'); $('scale-fit').setAttribute('aria-pressed', mode === 'fit');
+    drawTileLines();
+  }
+  $('scale-shared').addEventListener('click', () => setScale('shared'));
+  $('scale-fit').addEventListener('click', () => setScale('fit'));
+  const themeBtn = $('theme-btn');
+  const syncThemeLabel = () => themeBtn.textContent = document.documentElement.classList.contains('dark') ? 'Light mode' : 'Dark mode';
+  themeBtn.addEventListener('click', () => {
+    const dark = document.documentElement.classList.toggle('dark');
+    try { localStorage.setItem('theme', dark ? 'dark' : 'light'); } catch (e) {}
+    syncThemeLabel();
+  });
+  syncThemeLabel();
+
+  /* ---------- Modal ---------- */
+  const modal = $('modal'); let lastFocus = null, modalHoverYear = null, mx = null;
+  const M = { w: 760, h: 400, l: 46, r: 108, t: 18, b: 36 };
+
+  function openModal(st, from) {
+    hideHover(st); openState = st; lastFocus = from || null; modalHoverYear = null;
+    $('m-kicker').textContent = 'Share of population';
+    $('m-title').textContent = st.name;
+    drawModalChart(st); drawMetrics(st); renderModalReadout(year);
+    modal.classList.remove('hidden'); modal.classList.add('flex');
+    document.body.classList.add('overflow-hidden'); $('m-close').focus();
+  }
+  function closeModal() {
+    openState = null; modal.classList.add('hidden'); modal.classList.remove('flex');
+    document.body.classList.remove('overflow-hidden'); if (lastFocus) lastFocus.focus();
+  }
+  $('m-close').addEventListener('click', closeModal);
+  $('m-backdrop').addEventListener('click', closeModal);
+  addEventListener('keydown', ev => {
+    if (ev.key === 'Escape' && openState) closeModal();
+    if (ev.key === 'Tab' && openState) {                       // keep focus inside the dialog
+      const f = [...modal.querySelectorAll('button')]; if (!f.length) return;
+      if (ev.shiftKey && document.activeElement === f[0]) { ev.preventDefault(); f.at(-1).focus(); }
+      else if (!ev.shiftKey && document.activeElement === f.at(-1)) { ev.preventDefault(); f[0].focus(); }
+    }
+  });
+
+  function renderModalReadout(yr) {
+    if (!openState) return;
+    const st = openState, p = valueAt(st, yr), ahead = p.o > p.u;
+    $('m-readout').innerHTML =
+      `<strong>${p.year}</strong> &nbsp;<span style="color:var(--teal)">Under 18 <strong>${fmtPct(p.u)}</strong></span> &nbsp;` +
+      `<span style="color:var(--navy)">65+ <strong>${fmtPct(p.o)}</strong></span> &nbsp;` +
+      `<span class="muted">${ahead ? '65+ ahead by' : 'under 18 ahead by'} ${Math.abs(p.o - p.u).toFixed(1)} pts</span>`;
+    if (mx) { const x = mx.x(p.year);
+      mx.cursor.attr('x1', x).attr('x2', x);
+      mx.cu.attr('cx', x).attr('cy', mx.y(p.u)); mx.co.attr('cx', x).attr('cy', mx.y(p.o)); }
+  }
+
+  function drawModalChart(st) {
+    const svg = d3.select('#m-chart'); svg.selectAll('*').remove();
+    svg.attr('aria-label', `${st.name}: share of population under 18 and 65 and older, ${Y0} to ${Y1}`);
+    const x = d3.scaleLinear().domain([Y0, Y1]).range([M.l, M.w - M.r]);
+    const y = d3.scaleLinear().domain([0, st.hi * 1.08]).nice().range([M.h - M.b, M.t]);
+    const gl = svg.append('g');
+    gl.selectAll('line').data(y.ticks(5)).join('line').attr('class', 'm-gl').attr('x1', M.l).attr('x2', M.w - M.r).attr('y1', y).attr('y2', y);
+    gl.selectAll('text').data(y.ticks(5)).join('text').attr('x', M.l - 8).attr('y', d => y(d) + 4).attr('text-anchor', 'end').text(d => d + '%');
+    const xticks = d3.range(Math.ceil(Y0 / 10) * 10, Y1 + 1, 10); if (xticks.at(-1) !== Y1) xticks.push(Y1);
+    svg.append('line').attr('class', 'axis-line').attr('x1', M.l).attr('x2', M.w - M.r).attr('y1', M.h - M.b).attr('y2', M.h - M.b);
+    svg.append('g').selectAll('text').data(xticks).join('text').attr('x', x).attr('y', M.h - M.b + 20).attr('text-anchor', 'middle').text(d => d);
+
+    // Crossover marker
+    if (st.cross) {
+      const p = valueAt(st, st.cross), cx = x(st.cross);
+      svg.append('line').attr('class', 'cross-line').attr('x1', cx).attr('x2', cx).attr('y1', M.t).attr('y2', M.h - M.b);
+      svg.append('text').attr('x', cx + (cx > M.w - M.r - 150 ? -8 : 8)).attr('y', M.t + 12)
+        .attr('text-anchor', cx > M.w - M.r - 150 ? 'end' : 'start').style('font-weight', 600).style('fill', 'var(--ink)')
+        .text(`${st.cross}: 65+ overtake under\u201118`);
+      svg.append('circle').attr('cx', cx).attr('cy', y((p.u + p.o) / 2)).attr('r', 4.5).style('fill', 'var(--ink)');
+    }
+
+    svg.append('path').attr('class', 'ln-u').attr('stroke-width', 3).attr('d', lineGen(x, y, 'u')(st.series));
+    svg.append('path').attr('class', 'ln-o').attr('stroke-width', 3).attr('d', lineGen(x, y, 'o')(st.series));
+
+    // Decennial census years get hollow markers; years in between come from estimates or interpolation.
+    const censusYears = st.series.filter(p => p.year % 10 === 0);
+    svg.append('g').selectAll('circle.cu').data(censusYears).join('circle').attr('class', 'census-dot').attr('cx', p => x(p.year)).attr('cy', p => y(p.u)).attr('r', 3.5).style('stroke', 'var(--teal)');
+    svg.append('g').selectAll('circle.co').data(censusYears).join('circle').attr('class', 'census-dot').attr('cx', p => x(p.year)).attr('cy', p => y(p.o)).attr('r', 3.5).style('stroke', 'var(--navy)');
+
+    // End labels, nudged apart when the two lines finish close together.
+    const end = st.series.at(-1);
+    let yu = y(end.u), yo = y(end.o);
+    if (Math.abs(yu - yo) < 30) { const mid = (yu + yo) / 2, s = yu < yo ? -1 : 1; yu = mid + s * 15; yo = mid - s * 15; }
+    svg.append('text').attr('class', 'lbl-u').attr('x', M.w - M.r + 10).attr('y', yu + 4).text(`Under 18  ${fmtPct(end.u)}`);
+    svg.append('text').attr('class', 'lbl-o').attr('x', M.w - M.r + 10).attr('y', yo + 4).text(`65+  ${fmtPct(end.o)}`);
+
+    // Crosshair
+    const cursor = svg.append('line').attr('class', 'cursor').attr('y1', M.t).attr('y2', M.h - M.b);
+    const cu = svg.append('circle').attr('r', 4.5).style('fill', 'var(--teal)').style('stroke', 'var(--panel)').style('stroke-width', 1.5);
+    const co = svg.append('circle').attr('r', 4.5).style('fill', 'var(--navy)').style('stroke', 'var(--panel)').style('stroke-width', 1.5);
+    mx = { x, y, cursor, cu, co };
+    svg.append('rect').attr('x', M.l).attr('y', M.t).attr('width', M.w - M.l - M.r).attr('height', M.h - M.t - M.b)
+      .attr('fill', 'transparent').style('cursor', 'crosshair')
+      .on('pointermove', ev => {
+        const [px] = d3.pointer(ev, svg.node());
+        modalHoverYear = Math.max(Y0, Math.min(Y1, Math.round(x.invert(px)))); renderModalReadout(modalHoverYear);
+      })
+      .on('pointerleave', () => { modalHoverYear = null; renderModalReadout(year); });
+  }
+
+  function drawMetrics(st) {
+    const a = st.series[0], b = st.series.at(-1), du = b.u - a.u, dO = b.o - a.o;
+    const sign = v => (v >= 0 ? '+' : '\u2212') + Math.abs(v).toFixed(1) + ' pts';
+    const peak = st.series.reduce((m, p) => p.u > m.u ? p : m);
+    const cards = [
+      { k: `Under 18, ${b.year}`, v: fmtPct(b.u), s: `${sign(du)} since ${a.year} (${fmtPct(a.u)}). Peak ${fmtPct(peak.u)} in ${peak.year}.`, c: 'var(--teal)' },
+      { k: `65 and older, ${b.year}`, v: fmtPct(b.o), s: `${sign(dO)} since ${a.year} (${fmtPct(a.o)}). #${st.rankOld} oldest of ${states.length}.`, c: 'var(--navy)' },
+      { k: 'Crossover year', v: st.cross ?? 'Not yet', s: st.cross ? `65+ have outnumbered under\u201118 every year since.` : `Under\u201118 still lead by ${(b.u - b.o).toFixed(1)} pts in ${b.year}.`, c: 'var(--ink)' },
+      { k: `Seniors per 100 children`, v: Math.round(b.o / b.u * 100), s: `Up from ${Math.round(a.o / a.u * 100)} in ${a.year}.`, c: 'var(--ink)' }
+    ];
+    const box = d3.select('#m-metrics'); box.selectAll('*').remove();
+    const card = box.selectAll('div').data(cards).join('div').attr('class', 'rounded-lg border rule p-3');
+    card.append('div').attr('class', 'text-[11px] font-semibold tracking-wider uppercase muted').text(d => d.k);
+    card.append('div').attr('class', 'serif text-3xl font-bold mt-1 tabular-nums').style('color', d => d.c).text(d => d.v);
+    card.append('div').attr('class', 'text-xs muted mt-1 leading-snug').text(d => d.s);
+  }
+
+  drawTileLines(); refreshYear();
+  window.__app = { states, setYear, openModal, closeModal, get year() { return year; } };   // handy for debugging
+}
+
+main();
+})();
+</script>
+</body>
+</html>

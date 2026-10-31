@@ -1,0 +1,5 @@
+# Direct dependencies for fetch_census_data.py (Python 3.13).
+pandas==3.1.0
+numpy==2.5.4
+scipy==1.18.1
+requests==2.34.2
