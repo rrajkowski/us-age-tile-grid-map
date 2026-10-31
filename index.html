@@ -86,6 +86,21 @@
 
   .tile-meta { display: none; }
 
+  /* Legend: one compact inline row. The crossover stat breaks to its own line on a phone. */
+  #legend {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px;
+    margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--rule);
+    font-size: 12px; line-height: 1.3; font-weight: 400;
+  }
+  #legend .key { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+  #cross-stat {
+    display: inline-flex; align-items: center; gap: 6px;
+    margin-left: auto; font-weight: 400; white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+  }
+  #cross-pie { display: block; flex: none; }
+  #cross-stat #data-badge { margin-left: 4px; }
+
   @media (max-width: 767px) {
     #grid-scroll { overflow: visible; margin-left: 0; margin-right: 0; padding-left: 0; padding-right: 0; }
     #grid {
@@ -120,6 +135,8 @@
     }
     #grid .tile svg { grid-column: 2; grid-row: 1 / span 2; width: 148px; height: 64px; }
     #grid .tile .code { display: none; }
+    #cross-stat { flex-basis: 100%; margin-left: 0; }
+    #cross-stat #data-badge { margin-left: auto; }
     #year-row { flex-wrap: wrap; }
     #year-big { font-size: 3.25rem; }
     #modal { padding: 0; align-items: stretch; }
@@ -164,11 +181,18 @@
         </div>
       </div>
     </div>
-    <div class="flex flex-wrap items-center gap-x-6 gap-y-2 mt-4 pt-4 border-t rule text-sm">
-      <span class="inline-flex items-center gap-2"><span class="swatch-u inline-block w-5 h-[3px] rounded"></span>% of population under 18</span>
-      <span class="inline-flex items-center gap-2"><span class="swatch-o inline-block w-5 h-[3px] rounded"></span>% of population 65 and older</span>
-      <span class="inline-flex items-center gap-2"><span class="inline-block w-4 h-4 rounded-sm border rule" style="background:color-mix(in srgb, var(--navy) 11%, var(--panel))"></span>65+ outnumber under&#8209;18 in the selected year</span>
-      <span id="data-badge" class="ml-auto text-xs font-medium px-2.5 py-1 rounded-full border rule"></span>
+    <div id="legend">
+      <span class="key"><span class="swatch-u inline-block w-4 h-[3px] rounded"></span>% under 18</span>
+      <span class="key"><span class="swatch-o inline-block w-4 h-[3px] rounded"></span>% 65 and older</span>
+      <span class="key"><span class="inline-block w-3 h-3 rounded-sm border rule" style="background:color-mix(in srgb, var(--navy) 11%, var(--panel))"></span>65+ outnumber under&#8209;18</span>
+      <p id="cross-stat" aria-live="polite">
+        <svg id="cross-pie" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
+          <circle cx="8" cy="8" r="6.4" fill="var(--grid)"></circle>
+          <path id="cross-pie-slice" fill="var(--navy)"></path>
+        </svg>
+        <span id="cross-count"></span>
+        <span id="data-badge" class="text-xs font-medium px-2.5 py-1 rounded-full border rule"></span>
+      </p>
     </div>
   </section>
 
@@ -521,6 +545,20 @@ async function main() {
     st.g.du.attr('cx', x).attr('cy', st.ys(p.u));
     st.g.dO.attr('cx', x).attr('cy', st.ys(p.o));
   }
+  function drawCrossPie(n, total) {
+    const r = 6.4;
+    const slice = $('cross-pie-slice');
+    if (!total || n <= 0) { slice.setAttribute('d', ''); return; }
+    if (n >= total) {
+      slice.setAttribute('d', `M8 ${8 - r} A${r} ${r} 0 1 1 8 ${8 + r} A${r} ${r} 0 1 1 8 ${8 - r} Z`);
+      return;
+    }
+    const a = (n / total) * Math.PI * 2 - Math.PI / 2;
+    const x = 8 + r * Math.cos(a);
+    const y = 8 + r * Math.sin(a);
+    const large = n / total > 0.5 ? 1 : 0;
+    slice.setAttribute('d', `M8 8 L8 ${8 - r} A${r} ${r} 0 ${large} 1 ${x} ${y} Z`);
+  }
   function refreshYear() {
     for (const st of states) {
       if (st.hoverYear == null) placeMarker(st, year);
@@ -530,6 +568,8 @@ async function main() {
     }
     tiles.classed('crossed', st => { const p = valueAt(st, year); return p.o > p.u; });
     const n = states.filter(st => { const p = valueAt(st, year); return p.o > p.u; }).length;
+    $('cross-count').textContent = `${n}/${states.length} crossed over`;
+    drawCrossPie(n, states.length);
     $('year-big').textContent = year;
     $('stat').innerHTML = n === 0
       ? `In <strong>${year}</strong>, no state has more residents 65+ than under 18.`

@@ -72,4 +72,4 @@ DC and Puerto Rico are not included (the layout is the 50 states).
 
 ## License
 
-Code is released under the [MIT License](LICENSE). The license covers this project's code, not the underlying Census data or third-party data you add.
+Copyright (c) 2026 3R Webs. Code is released under the [MIT License](LICENSE). The license covers this project's code, not the underlying Census data or third-party data you add.
